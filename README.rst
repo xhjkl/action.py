@@ -1,23 +1,19 @@
-`action.py` is an argument parser for command line utilities.
+This library draws a parallel between command line args and function args in Python.
+Thus, positionals are mapped to regular function arguments,
+whereas options and flags are mapped to keyword arguments.
 
-The key idea behind `action.py` is that command line arguments
-could be mapped one-to-one to function arguments in Python.
-Thusly, positionals become regular function arguments,
-and options and flags take place of keywords.
-
-Look at this command invocation::
+For example, this command invocation::
 
     $ package install -u ffmpeg -v
 
-It is similar to this call::
+Could be translated to this function call::
 
     package.install('ffmpeg', upgrade=True, verbose=1)
 
-This library does the bridging for you.
-All you need to do in your code is to decorate
-the functions acting as commands as such::
+This library does the bridging automatically
+using information supplied in form of decorators and type annotations.
+To make a function accessible as a command-line action, decorate it with `action`::
 
-    import os
     import sys
     import action
 
@@ -27,7 +23,11 @@ the functions acting as commands as such::
         """
 
     if __name__ == '__main__':
-        os.exit(action.execute(sys.argv))
+        sys.exit(action.execute(sys.argv[1:]))
+
+All other exported symbols are described below.
+
+----
 
 @action
 =======
@@ -40,6 +40,8 @@ is drawn from the name of original function.
 All arguments before splat are counted as positionals,
 and those going after are options or flags.
 
+Configuration through annotations
+=================================
 Client code could alter how certain arguments
 are treated and presented by annotating its arguments.
 
@@ -68,7 +70,7 @@ First occurrence sets the value to `True`.
 Subsequent occurrences have no effect::
 
     @action
-    def add(x: int, y: int, pad: action.Flag = False):
+    def add(x: int, y: int, *, pad: action.Flag = False):
         result = x + y
         format = '{}'
         if pad:
@@ -82,7 +84,7 @@ On first occurrence sets to one,
 on each subsequent occurrence increments by one::
 
     @action
-    def add(x: int, y: int, verbose: action.Count = 0):
+    def add(x: int, y: int, *, verbose: action.Count = 0):
         result = x + y
 
         if verbose > 3:
@@ -183,3 +185,7 @@ with this method.
 
 Normally, an `Action` object is constructed in place
 of `action` module when importing.
+
+----
+
+Coded with Love.
