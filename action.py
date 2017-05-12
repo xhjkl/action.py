@@ -2,6 +2,8 @@
 """
 import shlex
 import collections
+from itertools import tee
+from functools import update_wrapper
 
 
 class Action(object):
@@ -123,6 +125,9 @@ class Action(object):
             which is invoked when no other action
             is specified
         """
+        if self.default_action is not None:
+            raise TypeError('there could be at most one default action')
+
         self.default_action = self._make_action(function)
         return self.default_action
 
@@ -170,52 +175,36 @@ class Action(object):
                 'an action should only be'
                 ' a function defined through `def`')
 
-        Key = self.Key
-        Option = self.Option
         options = dict()
         arguments = self.OrderedDict()
+
+        def wrapper(*args, **keywords):
+            return function(*args, **keywords)
+        action = update_wrapper(wrapper, function)
 
         code = function.__code__
         args = code.co_varnames[:code.co_argcount]
         kwargs = code.co_varnames[-code.co_kwonlyargcount:]
+        annotations = function.__annotations__
 
         for argname in args:
             # positional arguments are taken from function arguments
-            annotation = function.__annotations__.get(argname, str)
+            annotation = annotations.get(argname, str)
             if not callable(annotation):
                 raise TypeError('annotation should be callable')
             arguments[argname] = annotation
 
         for optname in kwargs:
             # options are derived from function kw-only arguments
-            annotation = function.__annotations__.get(optname)
-            if annotation is None:
-                annotation = Key(optname[0], optname)
-            elif type(annotation) is type:
-                long = optname
-                short = optname[0]
-                if issubclass(annotation, Option):
-                    # notation `verbose: action.Count`
-                    annotation = annotation(short, long)
-                else:
-                    # notation `count: int`
-                    annotation = Key(short, long, type=annotation)
-            elif type(annotation) is tuple and len(annotation) == 3:
-                # notation `reset_hard: ('r', 'hard', bool)`
-                short, long, mapper = annotation
-                annotation = Key(short, long, type=mapper)
-            if not isinstance(annotation, Option):
-                raise TypeError(
-                    'option annotation should be'
-                    ' an instance of action.Option,'
-                    ' a callable, or a triple (str, str, callable)')
-            options[optname] = annotation
+            annotation = annotations.get(optname)
+            mapper = self._normalize_annotation(optname, annotation)
+            options[optname] = mapper
 
-        function.options = options
-        function.arguments = arguments
-        function.is_variadic = len(code.co_varnames) > code.co_argcount
+        action.options = options
+        action.arguments = arguments
+        action.is_variadic = len(code.co_varnames) > code.co_argcount
 
-        return function
+        return action
 
     def _parse_command_line(self, action, argv):
         """ Make arguments dict for supplied action
@@ -259,9 +248,9 @@ class Action(object):
 
         # that `None` shall be a pair to the last element
         optargv += [None]
-        pairs = (
-            (optargv[i], optargv[i + 1])
-            for i in range(max(0, len(optargv) - 1)))
+        firsts, nexts = tee(optargv)
+        next(nexts, None)
+        pairs = zip(firsts, nexts)
         for arg, next_arg in pairs:
             next_arg_used = False
             if self._is_long_option(arg):
@@ -398,6 +387,45 @@ class Action(object):
             arguments[name] = mapper.__call__(arg)
 
         return arguments, leftover
+
+    def _normalize_annotation(self, name, annotation):
+        """ Return a mapper appropriate to the annotation passed
+            name -- argument name
+            annotation -- its annotation, if exists
+        """
+        Key = self.Key
+        Flag = self.Flag
+        Option = self.Option
+
+        if annotation is None:
+            return Key(name[0], name)
+
+        elif type(annotation) is type:
+            long = name.replace('_', '-')
+            short = name[0]
+            if issubclass(annotation, Option):
+                # notation `verbose: action.Count`
+                return annotation(short, long)
+            elif issubclass(annotation, bool):
+                # notation `quiet: bool`
+                return Flag(short, long)
+            else:
+                # notation `depth: int`
+                return Key(short, long, type=annotation)
+
+        elif type(annotation) is tuple and len(annotation) == 3:
+            # notation `reset_hard: ('r', 'hard', bool)`
+            short, long, mapper = annotation
+            return Key(short, long, type=mapper)
+
+        if isinstance(annotation, Option):
+            # notation `follow_symlinks: action.Flag('n', 'follow')`
+            return annotation
+
+        raise TypeError(
+            'option annotation should be'
+            ' an instance of action.Option,'
+            ' a callable, or a triple (str, str, callable)')
 
     @staticmethod
     def _is_long_option(s):

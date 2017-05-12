@@ -1,6 +1,5 @@
 This library draws a parallel between command line args and function args in Python.
-Thus, positionals are mapped to regular function arguments,
-whereas options and flags are mapped to keyword arguments.
+Positionals get passed to regular function arguments, and options or flags are mapped to keyword arguments.
 
 For example, this command invocation::
 
@@ -18,7 +17,7 @@ To make a function accessible as a command-line action, decorate it with `action
     import action
 
     @action
-    def install(package_name, *, upgrade=False, verbose=0):
+    def install(package_name, *, upgrade: action.Flag = False, verbose: action.Count = 0):
         """ Do the work
         """
 
